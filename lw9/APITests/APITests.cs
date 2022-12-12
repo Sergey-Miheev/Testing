@@ -1,22 +1,25 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Net.Http.Json;
 
 namespace APITests
 {
-    public class APITests: IDisposable
+    public class APITests : IDisposable
     {
         private List<string> _idProducts;
         private Requests _requests;
         private HttpResponseMessage? _response;
+        private TestData _data;
         public APITests()
         {
+            _data = new TestData();
             _idProducts = new List<string>();
             _requests = new Requests();
             _response = new HttpResponseMessage();
         }
         public async void Dispose()
         {
-            foreach(var id in _idProducts)
+            foreach (var id in _idProducts)
             {
                 await _requests.DeleteProduct(id);
             }
@@ -49,10 +52,23 @@ namespace APITests
             Assert.True(source["description"].ToString() == response["description"].ToString(), "description исходного товара не совпадает с description сервера");
             Assert.True(source["hit"].ToString() == response["hit"].ToString(), "hit исходного товара не совпадает с hit сервера");
         }
+        private async Task<JsonNode> PreparationBeforeUpdateProduct(JsonNode product)
+        {
+            _response = _requests.CreateProduct(TestData.validProduct).Result;
+            JsonNode? node = await _response.Content.ReadFromJsonAsync<JsonNode>();
+            _idProducts.Add(node["id"].ToString());
+            _response = _requests.GetAllProducts().Result;
+            List<JsonNode>? result = await _response.Content.ReadFromJsonAsync<List<JsonNode>>();
+            JsonNode? finded = result.Find(shopProduct => shopProduct["id"].ToString() == node["id"].ToString());
+            JsonNode? updateProduct = product;
+            updateProduct["id"] = finded["id"].ToString();
+            _response = _requests.UpdateProduct(TestData.ToJsonContent(updateProduct)).Result;
+            return updateProduct;
+        }
         [Fact]
         async void CheckExistenceOfField_AllProducts_Failed()
         {
-            _response = _requests.GetAllProducts().Result;            
+            _response = _requests.GetAllProducts().Result;
             string? content = await _response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<List<JsonNode>>(content);
 
@@ -79,8 +95,6 @@ namespace APITests
 
             // Проверяем равен ли полученный продукт отправленному
             CompareProducts(finded, JsonNode.Parse(TestData.validProductString));
-
-                     
         }
         [Fact]
         async void CreateInvalidProduct_ProductNotCreated()
@@ -91,30 +105,13 @@ namespace APITests
             //Если проверка не пройдена, значит вернулся id созданного продукта
             Assert.True("application/json" != contentType, "Сервер вернул id созданного продукта");
         }
-        [Fact]
-        async void CreateProductWithInvalidCategoryId_ProductNotCreated()
+        [Theory]
+        [InlineData(TestData.invalidCategoryIdProductString)]
+        [InlineData(TestData.invalidStatusProductString)]
+        [InlineData(TestData.invalidHitProductString)]
+        async void CreateProductWithInvalidField_ProductNotCreated(string invalidProduct)
         {
-            _response = _requests.CreateProduct(TestData.invalidCategoryIdProductContent).Result;
-            JsonObject? content = await _response.Content.ReadFromJsonAsync<JsonObject>();
-            _idProducts.Add(content["id"].ToString());
-
-            //Если проверка не пройдена, значит вернулся id созданного продукта
-            Assert.True(content["id"] is null, "Сервер вернул id созданного продукта");
-        }
-        [Fact]
-        async void CreateProductWithInvalidStatus_ProductNotCreated()
-        {
-            _response = _requests.CreateProduct(TestData.invalidStatusProductContent).Result;
-            JsonObject? content = await _response.Content.ReadFromJsonAsync<JsonObject>();
-            _idProducts.Add(content["id"].ToString());
-
-            //Если проверка не пройдена, значит вернулся id созданного продукта
-            Assert.True(content["id"] is null, "Сервер вернул id созданного продукта");
-        }
-        [Fact]
-        async void CreateProductWithInvalidHit_ProductNotCreated()
-        {
-            _response = _requests.CreateProduct(TestData.invalidHitProductContent).Result;
+            _response = _requests.CreateProduct(new StringContent(invalidProduct)).Result;
             JsonObject? content = await _response.Content.ReadFromJsonAsync<JsonObject>();
             _idProducts.Add(content["id"].ToString());
 
@@ -129,27 +126,17 @@ namespace APITests
 
             //Eсли проверка не пройдена, значит вернулся json с id созданного продукта
             Assert.True("application/json" != contentType, "Создался пустой продукт");
-        }      
+        }
         [Fact]
         async void UpdateProduct_Success()
         {
-            _response = _requests.CreateProduct(TestData.validProduct).Result;
-            JsonNode? node = await _response.Content.ReadFromJsonAsync<JsonNode>();
-            _idProducts.Add(node["id"].ToString());
-            _response = _requests.GetAllProducts().Result;
-            string? content = await _response.Content.ReadAsStringAsync();
-            List<JsonNode>? result = JsonSerializer.Deserialize<List<JsonNode>>(content);
-            JsonNode? finded = result.Find(shopProduct => shopProduct["id"].ToString() == node["id"].ToString());
-            JsonNode? updateProduct = TestData.updatedProductNode;
-            updateProduct["id"] = finded["id"].ToString();
-
-            _response = _requests.UpdateProduct(TestData.ToJsonContent(updateProduct)).Result;
+            var updateProduct = PreparationBeforeUpdateProduct(TestData.updatedProductNode).Result;
 
             Assert.True(_response.IsSuccessStatusCode, "Продукт не обновился, ошибка сервера");
 
             _response = _requests.GetAllProducts().Result;
-            content = await _response.Content.ReadAsStringAsync();
-            result = JsonSerializer.Deserialize<List<JsonNode>>(content);
+            string? content = await _response.Content.ReadAsStringAsync();
+            List<JsonNode>? result = JsonSerializer.Deserialize<List<JsonNode>>(content);
             JsonNode? afterUpdate = result.Find(shopProduct => shopProduct["id"].ToString() == updateProduct["id"].ToString());
 
             //Сравниваем отправленный продукт и полученный от сервера
@@ -158,76 +145,27 @@ namespace APITests
         [Fact]
         async void UpdateWithInvalidProduct_ProductNotUpdate()
         {
-            _response = _requests.CreateProduct(TestData.validProduct).Result;
-            JsonNode? node = await _response.Content.ReadFromJsonAsync<JsonNode>();
-            _idProducts.Add(node["id"].ToString());
-            _response = _requests.GetAllProducts().Result;
-            string? content = await _response.Content.ReadAsStringAsync();
-            List<JsonNode>? result = JsonSerializer.Deserialize<List<JsonNode>>(content);
-            JsonNode? finded = result.Find(shopProduct => shopProduct["id"].ToString() == node["id"].ToString());
-            JsonNode? updateProduct = JsonNode.Parse(TestData.invalidProductString);
-            updateProduct["id"] = finded["id"].ToString();
+            var updateProduct = PreparationBeforeUpdateProduct(TestData.invalidProductNode).Result;
 
-            _response = _requests.UpdateProduct(TestData.ToJsonContent(updateProduct)).Result;
             string? contentType = _response.Content.Headers.ContentType.ToString();
 
             //Eсли проверка не пройдена, значит вернулся json с id обновлённого продукта
             Assert.True("application/json" != contentType, "Сервер вернул id обновлённого невалидными значениями продукта");
         }
-        [Fact]
-        async void UpdateProductWithInvalidCategoryId_ProductNotUpdate()
+        [Theory]
+        [InlineData(TestData.invalidCategoryIdProductString)]
+        [InlineData(TestData.invalidStatusProductString)]
+        [InlineData(TestData.invalidHitProductString)]
+        async void UpdateProductWithInvalidField_ProductNotUpdate(string invalidProduct)
         {
-            _response = _requests.CreateProduct(TestData.validProduct).Result;
-            JsonNode? node = await _response.Content.ReadFromJsonAsync<JsonNode>();
-            _idProducts.Add(node["id"].ToString());
-            _response = _requests.GetAllProducts().Result;
-            List<JsonNode>? result = await _response.Content.ReadFromJsonAsync<List<JsonNode>>();
-            JsonNode? finded = result.Find(shopProduct => shopProduct["id"].ToString() == node["id"].ToString());
-            JsonNode? updateProduct = JsonNode.Parse(TestData.invalidCategoryIdProductString);
-            updateProduct["id"] = finded["id"].ToString();
+            var productNode = JsonNode.Parse(invalidProduct);
+            var updateProduct = PreparationBeforeUpdateProduct(productNode).Result;
 
-            _response = _requests.UpdateProduct(TestData.ToJsonContent(updateProduct)).Result;
             JsonNode? content = await _response.Content.ReadFromJsonAsync<JsonNode>();
 
             //Если проверка не пройдена, значит вернулся id созданного продукта
             Assert.True(content["id"] is null, "Сервер вернул id обновлённого продукта");
-        }
-        [Fact]
-        async void UpdateProductWithInvalidStatus_ProductNotUpdate()
-        {
-            _response = _requests.CreateProduct(TestData.validProduct).Result;
-            JsonNode? node = await _response.Content.ReadFromJsonAsync<JsonNode>();
-            _idProducts.Add(node["id"].ToString());
-            _response = _requests.GetAllProducts().Result;
-            List<JsonNode>? result = await _response.Content.ReadFromJsonAsync<List<JsonNode>>();
-            JsonNode? finded = result.Find(shopProduct => shopProduct["id"].ToString() == node["id"].ToString());
-            JsonNode? updateProduct = JsonNode.Parse(TestData.invalidStatusProductString);
-            updateProduct["id"] = finded["id"].ToString();
-
-            _response = _requests.UpdateProduct(TestData.ToJsonContent(updateProduct)).Result;
-            JsonObject? content = await _response.Content.ReadFromJsonAsync<JsonObject>();
-
-            //Если проверка не пройдена, значит вернулся id созданного продукта
-            Assert.True(content["id"] is null, "Сервер вернул id обновлённого продукта");
-        }
-        [Fact]
-        async void UpdateProductWithInvalidHit_ProductNotUpdate()
-        {
-            _response = _requests.CreateProduct(TestData.validProduct).Result;
-            JsonNode? node = await _response.Content.ReadFromJsonAsync<JsonNode>();
-            _idProducts.Add(node["id"].ToString());
-            _response = _requests.GetAllProducts().Result;
-            List<JsonNode>? result = await _response.Content.ReadFromJsonAsync<List<JsonNode>>();
-            JsonNode? finded = result.Find(shopProduct => shopProduct["id"].ToString() == node["id"].ToString());
-            JsonNode? updateProduct = JsonNode.Parse(TestData.invalidHitProductString);
-            updateProduct["id"] = finded["id"].ToString();
-
-            _response = _requests.UpdateProduct(TestData.ToJsonContent(updateProduct)).Result;
-            JsonObject? content = await _response.Content.ReadFromJsonAsync<JsonObject>();
-
-            //Если проверка не пройдена, значит вернулся id созданного продукта
-            Assert.True(content["id"] is null, "Сервер вернул id обновлённого продукта");
-        }
+        }        
         [Fact]
         async void UpdateWithEmptyProduct_ProductNotUpdate()
         {

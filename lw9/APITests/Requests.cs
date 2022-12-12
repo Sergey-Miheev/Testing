@@ -1,6 +1,10 @@
 ﻿public class Requests
 {
-    private string _baseUrl = "http://shop.qatl.ru/";
+    private string _getAllProductsUrl = "http://shop.qatl.ru/api/products";
+    private string _createProductUrl = "http://shop.qatl.ru/api/addproduct";
+    private string _deleteProductUrl = "http://shop.qatl.ru/api/deleteproduct?id=";
+    private string _editProductUrl = "http://shop.qatl.ru/api/editproduct";
+
     static HttpClient httpClient = new HttpClient();
     public Requests()
     {
@@ -11,7 +15,7 @@
         HttpResponseMessage? response = null;
         try
         {
-            response = await httpClient.GetAsync($"{_baseUrl}api/products");
+            response = await httpClient.GetAsync(_getAllProductsUrl);
         }
         catch { }    
         return response;
@@ -21,7 +25,17 @@
         HttpResponseMessage? response = null;        
         try
         {
-            response = await httpClient.PostAsync($"{_baseUrl}api/addproduct", content);
+            response = await httpClient.PostAsync(_createProductUrl, content);
+        }
+        catch { }
+        return response;
+    }
+    public async Task<HttpResponseMessage?> CreateProduct(StringContent content)
+    {
+        HttpResponseMessage? response = null;
+        try
+        {
+            response = await httpClient.PostAsync(_createProductUrl, content);
         }
         catch { }
         return response;
@@ -31,7 +45,7 @@
         HttpResponseMessage? response = null;
         try
         {
-            response = await httpClient.DeleteAsync($"{_baseUrl}api/deleteproduct?id={idProduct}");
+            response = await httpClient.DeleteAsync($"{_deleteProductUrl}{idProduct}");
         }
         catch { }
         return response;
@@ -41,7 +55,17 @@
         HttpResponseMessage? response = null;
         try
         {
-            response = await httpClient.PostAsync($"{_baseUrl}api/editproduct", content);
+            response = await httpClient.PostAsync(_editProductUrl, content);
+        }
+        catch { }
+        return response;
+    }
+    public async Task<HttpResponseMessage?> UpdateProduct(StringContent content)
+    {
+        HttpResponseMessage? response = null;
+        try
+        {
+            response = await httpClient.PostAsync(_editProductUrl, content);
         }
         catch { }
         return response;
